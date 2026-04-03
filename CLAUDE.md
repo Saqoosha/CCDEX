@@ -24,17 +24,47 @@ Light theme design, blends with the existing footer UI.
 
 ## How It Works
 
-1. **context-indicator.js** is appended to `.vite/build/mainView.js` inside `app.asar`
-2. The preload script has access to `require('electron').ipcRenderer` and the DOM
-3. **Context tokens**: Listens on the LocalSessions IPC channel for assistant messages containing `usage` data
-4. **Rate limits**: Fetches `GET /api/organizations/{orgId}/usage` directly (same-origin, cookie auth automatic). The org ID is read from the `lastActiveOrg` cookie
-5. The indicator is injected into the footer bar's `flex-1` spacer element (between path display and action buttons)
+**context-indicator.js** is appended to `.vite/build/mainView.js` inside `app.asar`. Since this is a preload script, it has access to both `require('electron').ipcRenderer` and the DOM.
 
-### Rate Limit API
+The indicator displays two types of data, each obtained through a different mechanism:
 
-The renderer loads from `https://claude.ai/claude-code-desktop/...`, so fetching `/api/organizations/{orgId}/usage` is a same-origin request — session cookies are sent automatically. No external scripts, no Keychain access, no manual token setup.
+### 1. Context Token Usage (via IPC)
 
-Response format:
+The script listens on the Electron IPC channel for `LocalSessions` events:
+
+```
+Channel: $eipc_message$_<uuid>_$_claude.web_$_LocalSessions_$_onEvent
+```
+
+When Claude Code sends an assistant response, the event payload includes a `usage` object:
+
+```json
+{
+  "input_tokens": 12345,
+  "output_tokens": 678,
+  "cache_creation_input_tokens": 0,
+  "cache_read_input_tokens": 9000
+}
+```
+
+The script tracks per-session token counts (input + cache + output) and displays them against the model's context limit (currently hardcoded at 200k for all models).
+
+Session lifecycle events (`session_updated`, `stopped`, `archived`, `deleted`) are also handled to keep the display in sync.
+
+### 2. Rate Limit Usage (via Same-Origin API)
+
+This is the key insight: **the Code tab's renderer process loads from `https://claude.ai/claude-code-desktop/...`**, which means any `fetch()` call to `/api/...` is a **same-origin request**. The browser automatically includes the `sessionKey` cookie — no manual token extraction, no external scripts, no Keychain access needed.
+
+External tools (e.g., standalone scripts) would need to manually obtain and pass the `sessionKey` cookie. Because our script runs *inside* the Electron renderer, authentication is free.
+
+**How the fetch works:**
+
+1. Read the org ID from the `lastActiveOrg` cookie: `document.cookie.match(/lastActiveOrg=([^;]+)/)`
+2. Fetch `GET /api/organizations/{orgId}/usage` — session cookies are sent automatically
+3. Parse the response and update the indicator
+
+**Response format:**
+
 ```json
 {
   "five_hour": { "utilization": 0.0, "resets_at": "2026-04-03T14:00:01+00:00" },
@@ -43,7 +73,17 @@ Response format:
 }
 ```
 
-`utilization` is 0–100 (percentage). Fetched on startup (3s delay), every 60s, and on `rate_limit_event` IPC events.
+`utilization` is 0–100 (percentage).
+
+**Fetch triggers:**
+- On startup (3s delay to wait for DOM)
+- Every 60s (polling interval)
+- On `rate_limit_event` IPC events (immediate refresh when rate-limited)
+- Throttled to at most once per 30s to avoid excessive requests
+
+### 3. UI Injection
+
+The indicator is injected into the footer bar's `flex-1` spacer element (between the path display and action buttons). A `MutationObserver` watches for DOM rebuilds (tab switches, navigation) and re-injects as needed.
 
 ## Key Technical Facts
 

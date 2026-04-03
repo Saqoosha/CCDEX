@@ -16,11 +16,23 @@ Color coding: green (< 50%) / amber (50–80%) / red (> 80%).
 
 ## How It Works
 
-CCDEX patches Claude Desktop's Electron app to inject a small script into the preload layer:
+CCDEX patches Claude Desktop's Electron app to inject a small script into the preload layer. The script collects two types of data:
 
-1. **Context tokens** — Monitors IPC events from `LocalSessions` for assistant message `usage` data
-2. **Rate limits** — Fetches `/api/organizations/{orgId}/usage` directly from the renderer (same-origin with `claude.ai`, so session cookies are sent automatically — no API keys, no Keychain, no manual setup)
-3. **UI** — Injects into the footer bar's spacer element using MutationObserver for resilience across tab switches
+### Context Token Usage
+
+The Code tab communicates with the backend via Electron IPC. The script listens on the `LocalSessions` IPC channel for assistant message events, which include a `usage` object with `input_tokens`, `output_tokens`, and cache token counts. These are tracked per-session and displayed against the model's context limit.
+
+### Rate Limit Usage
+
+The Code tab's renderer loads from `https://claude.ai/claude-code-desktop/...`. This means `fetch('/api/...')` calls are **same-origin requests** — the browser automatically includes the `sessionKey` cookie for authentication. No API keys, no Keychain access, no manual token extraction needed.
+
+The script reads the org ID from the `lastActiveOrg` cookie, then fetches `GET /api/organizations/{orgId}/usage` which returns utilization percentages (0–100) and reset timestamps for both 5-hour and 7-day windows.
+
+> **Why this matters:** External tools that want rate limit data must manually extract the `sessionKey` cookie from the browser. Because CCDEX runs *inside* the renderer process, authentication is automatic and zero-config.
+
+### UI Injection
+
+The indicator is injected into the footer bar's `flex-1` spacer element (between the path display and action buttons). A `MutationObserver` re-injects on DOM rebuilds caused by tab switches or navigation.
 
 ## Requirements
 
