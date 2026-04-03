@@ -16,25 +16,29 @@ Color coding: green (< 50%) / amber (50–80%) / red (> 80%).
 
 ## How It Works
 
-CCDEX patches Claude Desktop's Electron app to inject a small script into the preload layer. The script collects two types of data:
+Claude Desktop is an Electron app. Its **Code tab** renders a web page from `https://claude.ai/claude-code-desktop/...` inside an Electron renderer process. CCDEX appends a small JavaScript snippet to the app's preload script (`mainView.js` inside `app.asar`), which gives it access to both the **DOM** and **Electron IPC**.
 
-### Context Token Usage
+From this position, the script can observe everything the Code tab does — and that's how it gets the two pieces of data it needs:
 
-The Code tab communicates with the backend via Electron IPC. The script listens on the `LocalSessions` IPC channel for assistant message events, which include a `usage` object with `input_tokens`, `output_tokens`, and cache token counts. These are tracked per-session and displayed against the model's context limit.
+### Context Token Usage (from Electron IPC)
 
-The context limit is detected dynamically from `result` events, which include `modelUsage` with each model's `contextWindow` (e.g., 200k for standard, 1M for extended context). No hardcoded limits — the indicator adapts automatically.
+Every time Claude Code receives an assistant response, the app fires an IPC event on the `LocalSessions` channel. These events include a `usage` object with token counts (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`). The script simply listens for these events and tallies them per session.
 
-### Rate Limit Usage
+The model's **context window size** (200k, 1M, etc.) is also delivered via IPC — each completed turn emits a `result` event containing `modelUsage` with the actual `contextWindow` value. No hardcoded limits needed; the indicator adapts automatically to whatever model is in use.
 
-The Code tab's renderer loads from `https://claude.ai/claude-code-desktop/...`. This means `fetch('/api/...')` calls are **same-origin requests** — the browser automatically includes the `sessionKey` cookie for authentication. No API keys, no Keychain access, no manual token extraction needed.
+### Rate Limit Usage (from the claude.ai API)
 
-The script reads the org ID from the `lastActiveOrg` cookie, then fetches `GET /api/organizations/{orgId}/usage` which returns utilization percentages (0–100) and reset timestamps for both 5-hour and 7-day windows.
+Because the Code tab's renderer is loaded from `https://claude.ai`, any `fetch('/api/...')` call is a **same-origin request** — the browser automatically attaches the user's `sessionKey` cookie. The script reads the org ID from the `lastActiveOrg` cookie, then calls:
 
-> **Why this matters:** External tools that want rate limit data must manually extract the `sessionKey` cookie from the browser. Because CCDEX runs *inside* the renderer process, authentication is automatic and zero-config.
+```
+GET /api/organizations/{orgId}/usage
+```
+
+This returns utilization percentages (0–100) and reset timestamps for both the 5-hour and 7-day rate limit windows. No API keys or manual setup needed.
 
 ### UI Injection
 
-The indicator is injected into the footer bar's `flex-1` spacer element (between the path display and action buttons). A `MutationObserver` re-injects on DOM rebuilds caused by tab switches or navigation.
+The indicator is injected into the footer bar's spacer element (between the path display and the action buttons). A `MutationObserver` watches for DOM rebuilds (caused by tab switches or navigation) and re-injects as needed.
 
 ## Requirements
 
@@ -49,6 +53,9 @@ The indicator is injected into the footer bar's `flex-1` spacer element (between
 # 1. Close Claude Desktop
 
 # 2. Disable ASAR integrity fuse (first time only, or after app updates)
+#    Electron validates per-file SHA256 hashes embedded in the ASAR archive.
+#    Since we modify mainView.js, the hash no longer matches — the app would
+#    crash on startup. Disabling this fuse skips the integrity check.
 npx @electron/fuses@1.8.0 write \
   --app "/Applications/Claude.app" \
   EnableEmbeddedAsarIntegrityValidation=off
@@ -64,6 +71,8 @@ open /Applications/Claude.app
 ```
 
 > **Note:** `sudo` is typically not needed. Re-signing with `codesign` is not required when the ASAR integrity fuse is disabled.
+
+> **Security disclaimer:** Disabling the ASAR integrity fuse means Electron will no longer verify that the app's code hasn't been tampered with. This is required for CCDEX to work, but it also means other software could modify `app.asar` without detection. Only use this on a machine you trust.
 
 ## After Claude Desktop Updates
 
