@@ -19,6 +19,16 @@ Adds a lightweight indicator to the footer bar of Claude Desktop's Code tab show
 - **5-hour rate limit**: usage percentage + countdown (e.g., `5h 2% 4h35m`)
 - **Weekly rate limit**: usage percentage + countdown (e.g., `Wk 5% 6d`)
 
+Also adds **keyboard shortcuts** for sidebar session navigation:
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+1` ~ `Ctrl+9` | Jump to Nth session in sidebar |
+| `Cmd+Opt+↓` | Next session |
+| `Cmd+Opt+↑` | Previous session |
+
+Note: Only works for sessions currently rendered in the virtual scroll list (DOM-visible items).
+
 Light theme design, blends with the existing footer UI.
 
 ## How It Works
