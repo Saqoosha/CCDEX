@@ -177,14 +177,16 @@ def check_fuses():
     """Check if ASAR integrity fuse is disabled."""
     result = _run_fuse_tool(["read", "--app", CLAUDE_APP])
     if result is None:
-        print("WARNING: Could not determine fuse state. Proceeding anyway.")
+        print("WARNING: Could not run fuse tool.")
         return None
     output = result.stdout + result.stderr
     if "EnableEmbeddedAsarIntegrityValidation is Enabled" in output:
         return False
     if "EnableEmbeddedAsarIntegrityValidation is Disabled" in output:
         return True
-    print("WARNING: Could not determine fuse state. Proceeding anyway.")
+    # Tool ran but fuse name not found — may be a version format change
+    print("WARNING: Fuse tool ran but EnableEmbeddedAsarIntegrityValidation not found in output.")
+    print(f"Output: {output[:500]}")
     return None
 
 
@@ -193,19 +195,25 @@ def disable_fuse():
     print("Disabling EnableEmbeddedAsarIntegrityValidation fuse...")
     result = _run_fuse_tool(["write", "--app", CLAUDE_APP,
                              "EnableEmbeddedAsarIntegrityValidation=off"])
-    if result is None or result.returncode != 0:
-        stderr = result.stderr if result else "(tool not found)"
-        print(f"ERROR: Failed to disable fuse: {stderr}")
+    if result is None:
+        print("ERROR: Failed to disable fuse: tool not found or did not produce expected output.")
         print("Try manually:")
         print(f"  npx {FUSE_TOOL} write --app \"{CLAUDE_APP}\" EnableEmbeddedAsarIntegrityValidation=off")
         print(f"  # or: bun x {FUSE_TOOL} write --app \"{CLAUDE_APP}\" EnableEmbeddedAsarIntegrityValidation=off")
+        return False
+    if result.returncode != 0:
+        output = result.stdout + result.stderr
+        print(f"ERROR: Fuse tool exited with code {result.returncode}: {output}")
         return False
     print("Fuse disabled.")
     return True
 
 
 def resign_app():
-    """Re-sign Claude.app with an ad-hoc signature (no sudo needed)."""
+    """Re-sign Claude.app with an ad-hoc signature.
+    Requires write permission on Claude.app — sudo is typically not needed
+    if your user owns /Applications/Claude.app.
+    """
     print("Re-signing Claude.app (ad-hoc)...")
     subprocess.run(
         ["codesign", "--force", "--deep", "--sign", "-", CLAUDE_APP],
@@ -247,7 +255,17 @@ def main():
             sys.exit(1)
     elif fuse_ok is True:
         print("ASAR integrity fuse is already disabled.")
-    # else: check_fuses() already printed the warning
+    else:
+        # fuse_ok is None — could not verify; check_fuses() already printed why
+        if do_install:
+            print("ERROR: Cannot verify fuse state. Refusing --install.")
+            print("Check fuse state manually:")
+            print(f"  npx {FUSE_TOOL} read --app \"{CLAUDE_APP}\"")
+            print("If ASAR integrity is still enabled, the patched app will not launch.")
+            sys.exit(1)
+        else:
+            print("WARNING: If ASAR integrity is still enabled, the patched ASAR will not work.")
+            print(f"Check: npx {FUSE_TOOL} read --app \"{CLAUDE_APP}\"")
 
     # Backup
     if not os.path.exists(BACKUP_ASAR):
