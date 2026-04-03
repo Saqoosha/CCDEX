@@ -354,6 +354,74 @@
     }
   }
 
+  // --- Session Navigation Shortcuts ---
+
+  function getSessionItems() {
+    // Sidebar session list scrollable container (volatile Tailwind classes — may break on app updates)
+    const scrollContainer = document.querySelector('.overflow-y-auto.overflow-x-hidden');
+    if (!scrollContainer) return [];
+    const items = scrollContainer.querySelectorAll('div[data-index]');
+    const sessionItems = [];
+    items.forEach(item => {
+      // Session items contain a .grid child; date headers ("Today", "Older") don't
+      const grid = item.querySelector('.grid');
+      if (grid) sessionItems.push({ container: item, grid: grid });
+    });
+    return sessionItems;
+  }
+
+  function getActiveSessionIndex(items) {
+    for (let i = 0; i < items.length; i++) {
+      // bg-bg-300 = active/selected session highlight (volatile — theme-dependent)
+      if (items[i].grid.classList.contains('bg-bg-300')) return i;
+    }
+    return -1;
+  }
+
+  function navigateSession(direction) {
+    const items = getSessionItems();
+    if (items.length === 0) return;
+    const activeIdx = getActiveSessionIndex(items);
+    let targetIdx;
+    if (activeIdx === -1) {
+      targetIdx = 0; // No active — go to first
+    } else {
+      targetIdx = activeIdx + direction;
+      if (targetIdx < 0 || targetIdx >= items.length) return; // At boundary
+    }
+    items[targetIdx].grid.click();
+    console.log('[CCDEX] Session nav:', direction > 0 ? 'next' : 'prev', '→ index', targetIdx);
+  }
+
+  document.addEventListener('keydown', (e) => {
+    // Cmd+Opt+↓ = next session, Cmd+Opt+↑ = prev session
+    if (e.metaKey && e.altKey && !e.shiftKey && !e.ctrlKey) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateSession(1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopPropagation();
+        navigateSession(-1);
+      }
+    }
+    // Ctrl+1~9 = jump to session by number (only visible/rendered sessions due to virtual scroll)
+    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 9) {
+        const items = getSessionItems();
+        const idx = n - 1;
+        if (idx < items.length) {
+          e.preventDefault();
+          e.stopPropagation();
+          items[idx].grid.click();
+          console.log('[CCDEX] Session jump: Ctrl+' + n, '→ index', idx);
+        }
+      }
+    }
+  }, true); // capture phase to beat app handlers
+
   // --- Init ---
 
   ipcRenderer.on(IPC_CHANNEL, (_event, data) => handleEvent(data));
