@@ -121,21 +121,26 @@ The indicator is injected into the footer bar's `flex-1` spacer element (between
 # 1. Close Claude Desktop
 
 # 2. Disable ASAR integrity fuse (first time only, or after updates)
+#    This modifies the Electron Framework binary, which invalidates the code signature.
 npx @electron/fuses@1.8.0 write \
   --app "/Applications/Claude.app" \
   EnableEmbeddedAsarIntegrityValidation=off
+# Alternative if npx has permission issues:
+# bun x @electron/fuses@1.8.0 write --app "/Applications/Claude.app" EnableEmbeddedAsarIntegrityValidation=off
 
-# 3. Run the binary ASAR patcher
-python3 patch.py
+# 3. Patch and install in one step (recommended)
+python3 patch.py --install
 
-# 4. Install patched ASAR
-cp /tmp/app-patched.asar "/Applications/Claude.app/Contents/Resources/app.asar"
+# Or manually: patch only, then install separately
+# python3 patch.py
+# cp /tmp/app-patched.asar "/Applications/Claude.app/Contents/Resources/app.asar"
+# codesign --force --deep --sign - "/Applications/Claude.app"
 
-# 5. Launch Claude Desktop
+# 4. Launch Claude Desktop
 open /Applications/Claude.app
 ```
 
-Note: `sudo` is typically not needed for the `cp` step if your user owns the file. Re-signing with `codesign` is also not required when the ASAR integrity fuse is disabled.
+Note: `sudo` is not needed — the user typically owns `/Applications/Claude.app` on a personal Mac. The `codesign` step is **required**: the fuse write in step 2 modifies the `Electron Framework` binary, which invalidates the original signature. The `--install` flag in step 3 handles both the copy and re-sign automatically.
 
 ### After Claude Desktop Updates
 
