@@ -2,8 +2,9 @@
 
 **Claude Code Desktop Context Extension** — Injects a real-time context usage + rate limit indicator into Claude Desktop's footer bar.
 
-![screenshot](https://github.com/user-attachments/assets/placeholder.png)
-<!-- TODO: Replace with actual screenshot -->
+<p align="center">
+  <img src="screenshot.png" alt="CCDEX in Claude Desktop footer bar">
+</p>
 
 ## What It Shows
 
