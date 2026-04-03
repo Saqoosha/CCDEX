@@ -147,50 +147,69 @@ def patch_asar(asar_path: str, inject_path: str, output_path: str) -> str:
     return asar_hash
 
 
+def _run_fuse_tool(args: list[str]) -> subprocess.CompletedProcess | None:
+    """Run fuse tool, trying npx first then bun x as fallback."""
+    for runner in [["npx"], ["bun", "x"]]:
+        try:
+            result = subprocess.run(
+                runner + [FUSE_TOOL] + args,
+                capture_output=True, text=True, timeout=60,
+            )
+            output = result.stdout + result.stderr
+            # Success if we see expected output patterns
+            if "Fuse Version" in output or "Fuses written" in output:
+                return result
+        except Exception:
+            continue
+    return None
+
+
 def check_fuses():
     """Check if ASAR integrity fuse is disabled."""
-    try:
-        result = subprocess.run(
-            ["npx", FUSE_TOOL, "read", "--app", CLAUDE_APP],
-            capture_output=True, text=True, timeout=30,
-        )
-        output = result.stdout + result.stderr
-        if "EnableEmbeddedAsarIntegrityValidation is Enabled" in output:
-            return False
-        if "EnableEmbeddedAsarIntegrityValidation is Disabled" in output:
-            return True
-    except Exception as e:
-        print(f"WARNING: Could not check fuses: {e}")
+    result = _run_fuse_tool(["read", "--app", CLAUDE_APP])
+    if result is None:
+        print("WARNING: Could not determine fuse state. Proceeding anyway.")
+        return None
+    output = result.stdout + result.stderr
+    if "EnableEmbeddedAsarIntegrityValidation is Enabled" in output:
+        return False
+    if "EnableEmbeddedAsarIntegrityValidation is Disabled" in output:
+        return True
+    print("WARNING: Could not determine fuse state. Proceeding anyway.")
     return None
 
 
 def disable_fuse():
     """Disable ASAR integrity fuse."""
     print("Disabling EnableEmbeddedAsarIntegrityValidation fuse...")
-    result = subprocess.run(
-        ["npx", FUSE_TOOL, "write", "--app", CLAUDE_APP,
-         "EnableEmbeddedAsarIntegrityValidation=off"],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        print(f"ERROR: Failed to disable fuse: {result.stderr}")
-        print("Try running with sudo or manually:")
+    result = _run_fuse_tool(["write", "--app", CLAUDE_APP,
+                             "EnableEmbeddedAsarIntegrityValidation=off"])
+    if result is None or result.returncode != 0:
+        stderr = result.stderr if result else "(tool not found)"
+        print(f"ERROR: Failed to disable fuse: {stderr}")
+        print("Try manually:")
         print(f"  npx {FUSE_TOOL} write --app \"{CLAUDE_APP}\" EnableEmbeddedAsarIntegrityValidation=off")
+        print(f"  # or: bun x {FUSE_TOOL} write --app \"{CLAUDE_APP}\" EnableEmbeddedAsarIntegrityValidation=off")
         return False
     print("Fuse disabled.")
     return True
 
 
+def resign_app():
+    """Re-sign Claude.app with an ad-hoc signature (no sudo needed)."""
+    print("Re-signing Claude.app (ad-hoc)...")
+    subprocess.run(
+        ["codesign", "--force", "--deep", "--sign", "-", CLAUDE_APP],
+        check=True,
+    )
+    print("Re-signed.")
+
+
 def install_asar(patched_path: str):
     """Copy patched ASAR to Claude.app and re-sign."""
     print(f"Installing {patched_path} -> {ASAR_PATH}")
-    subprocess.run(["sudo", "cp", patched_path, ASAR_PATH], check=True)
-
-    print("Re-signing Claude.app (ad-hoc)...")
-    subprocess.run(
-        ["sudo", "codesign", "--force", "--deep", "--sign", "-", CLAUDE_APP],
-        check=True,
-    )
+    subprocess.run(["cp", patched_path, ASAR_PATH], check=True)
+    resign_app()
     print("Installed and signed.")
 
 
@@ -243,8 +262,8 @@ def main():
     else:
         print(f"\nPatched ASAR written to {OUTPUT_ASAR}")
         print("To install, run:")
-        print(f"  sudo cp {OUTPUT_ASAR} \"{ASAR_PATH}\"")
-        print(f"  sudo codesign --force --deep --sign - \"{CLAUDE_APP}\"")
+        print(f"  cp {OUTPUT_ASAR} \"{ASAR_PATH}\"")
+        print(f"  codesign --force --deep --sign - \"{CLAUDE_APP}\"")
         print("\nOr re-run with --install flag:")
         print(f"  python3 {sys.argv[0]} --install")
 

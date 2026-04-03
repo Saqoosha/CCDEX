@@ -45,7 +45,8 @@ The indicator is injected into the footer bar's spacer element (between the path
 - macOS
 - [Claude Desktop](https://claude.ai/download) app
 - Python 3
-- Node.js (for `npx`)
+- Node.js (for `npx`) — or [Bun](https://bun.sh) as an alternative
+- `codesign` — included with macOS, no extra install needed
 
 ## Installation
 
@@ -56,21 +57,26 @@ The indicator is injected into the footer bar's spacer element (between the path
 #    Electron validates per-file SHA256 hashes embedded in the ASAR archive.
 #    Since we modify mainView.js, the hash no longer matches — the app would
 #    crash on startup. Disabling this fuse skips the integrity check.
+#    Note: this also modifies the Electron Framework binary, invalidating the code signature.
 npx @electron/fuses@1.8.0 write \
   --app "/Applications/Claude.app" \
   EnableEmbeddedAsarIntegrityValidation=off
+# Alternative if npx has permission issues: bun x @electron/fuses@1.8.0 write ...
 
 # 3. Patch the ASAR
 python3 patch.py
 
-# 4. Install
+# 4. Install (no sudo needed if you own the app)
 cp /tmp/app-patched.asar "/Applications/Claude.app/Contents/Resources/app.asar"
 
-# 5. Launch
+# 5. Re-sign (required — fuse write in step 2 invalidates the code signature)
+codesign --force --deep --sign - "/Applications/Claude.app"
+
+# 6. Launch
 open /Applications/Claude.app
 ```
 
-> **Note:** `sudo` is typically not needed. Re-signing with `codesign` is not required when the ASAR integrity fuse is disabled.
+> **Note:** `sudo` is not needed — you typically own `/Applications/Claude.app` on a personal Mac. The re-sign step is required because the fuse write modifies the `Electron Framework` binary.
 
 > **Security disclaimer:** Disabling the ASAR integrity fuse means Electron will no longer verify that the app's code hasn't been tampered with. This is required for CCDEX to work, but it also means other software could modify `app.asar` without detection. Only use this on a machine you trust.
 
