@@ -6,7 +6,7 @@ Usage:
     python3 patch.py [--install]
 
 Without --install: creates /tmp/app-patched.asar
-With --install: also copies to Claude.app and re-signs (requires sudo)
+With --install: also copies to Claude.app and re-signs
 """
 
 import hashlib
@@ -148,7 +148,10 @@ def patch_asar(asar_path: str, inject_path: str, output_path: str) -> str:
 
 
 def _run_fuse_tool(args: list[str]) -> subprocess.CompletedProcess | None:
-    """Run fuse tool, trying npx first then bun x as fallback."""
+    """Run fuse tool, trying npx first then bun x as fallback.
+    Returns CompletedProcess if the tool ran and produced expected output,
+    None if neither runner is available or neither produces expected output.
+    """
     for runner in [["npx"], ["bun", "x"]]:
         try:
             result = subprocess.run(
@@ -156,11 +159,17 @@ def _run_fuse_tool(args: list[str]) -> subprocess.CompletedProcess | None:
                 capture_output=True, text=True, timeout=60,
             )
             output = result.stdout + result.stderr
-            # Success if we see expected output patterns
-            if "Fuse Version" in output or "Fuses written" in output:
+            # Accept if output matches expected patterns OR tool exited cleanly
+            if "Fuse Version" in output or "Fuses written" in output or result.returncode == 0:
                 return result
-        except Exception:
-            continue
+        except FileNotFoundError:
+            continue  # runner not installed, try next
+        except subprocess.TimeoutExpired:
+            print(f"ERROR: {runner[0]} timed out running {FUSE_TOOL}")
+            return None
+        except Exception as e:
+            print(f"ERROR: {runner[0]} unexpected error: {type(e).__name__}: {e}")
+            return None
     return None
 
 
@@ -238,8 +247,7 @@ def main():
             sys.exit(1)
     elif fuse_ok is True:
         print("ASAR integrity fuse is already disabled.")
-    else:
-        print("WARNING: Could not determine fuse state. Proceeding anyway.")
+    # else: check_fuses() already printed the warning
 
     # Backup
     if not os.path.exists(BACKUP_ASAR):
