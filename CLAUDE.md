@@ -9,14 +9,13 @@ CCDEX/
 ├── CLAUDE.md              # This file
 ├── RESEARCH.md            # Detailed technical research & architecture notes
 ├── context-indicator.js   # Injection script (appended to mainView.js preload)
-├── patch.py               # Automated patching script
-└── fetch-usage.sh         # (deprecated) Companion script, no longer needed
+└── patch.py               # Automated patching script
 ```
 
 ## What This Does
 
 Adds a lightweight indicator to the footer bar of Claude Desktop's Code tab showing:
-- **Context usage**: progress bar + token count (e.g., `46.7k / 200.0k`)
+- **Context usage**: progress bar + token count (e.g., `46.7k / 200.0k` or `171.2k / 1.0M`)
 - **5-hour rate limit**: usage percentage + countdown (e.g., `5h 2% 4h35m`)
 - **Weekly rate limit**: usage percentage + countdown (e.g., `Wk 5% 6d`)
 
@@ -47,7 +46,22 @@ When Claude Code sends an assistant response, the event payload includes a `usag
 }
 ```
 
-The script tracks per-session token counts (input + cache + output) and displays them against the model's context limit (currently hardcoded at 200k for all models).
+The script tracks per-session token counts (input + cache + output) and displays them against the model's context limit.
+
+The context limit is obtained dynamically from `result` events, which include a `modelUsage` object:
+
+```json
+{
+  "modelUsage": {
+    "claude-opus-4-6": {
+      "contextWindow": 200000,
+      "maxOutputTokens": 64000
+    }
+  }
+}
+```
+
+The largest `contextWindow` value is used as the session's limit. The context bar is hidden until the first `result` event provides this data.
 
 Session lifecycle events (`session_updated`, `stopped`, `archived`, `deleted`) are also handled to keep the display in sync.
 
@@ -177,6 +191,6 @@ Open DevTools: `Option+Cmd+I`
 ## Known Limitations
 
 - Token counts reflect the last API response, not cumulative session total
-- Model context limit is hardcoded to 200k (doesn't detect 1M context)
-- Indicator only appears after first assistant response (context) or first API fetch (rate limits)
+- Context bar only appears after first `result` event (which provides `contextWindow` via `modelUsage`)
+- Rate limits appear after first API fetch (on startup with 3s delay)
 - Auto-updates will revert the patch

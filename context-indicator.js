@@ -8,14 +8,7 @@
 
   const IPC_CHANNEL = '$eipc_message$_ecf9b7a0-beb7-40a8-9885-aa723c019ace_$_claude.web_$_LocalSessions_$_onEvent';
 
-  const MODEL_LIMITS = {
-    'claude-4-opus': 200000,
-    'claude-3-7-sonnet': 200000,
-    'claude-3-5-haiku': 200000,
-    'claude-3-opus': 200000,
-    'claude-3-sonnet': 200000,
-    'default': 200000
-  };
+  const DEFAULT_CONTEXT_LIMIT = 0; // 0 = unknown, hide until learned from modelUsage
 
   const sessions = new Map();
   const rateLimits = {
@@ -64,12 +57,18 @@
     }
   }
 
+  // Dynamic context limits learned from result events' modelUsage
+  const dynamicLimits = new Map();
+
   function getModelLimit(model) {
-    if (!model) return MODEL_LIMITS.default;
-    for (const [key, limit] of Object.entries(MODEL_LIMITS)) {
-      if (model.includes(key)) return limit;
+    if (!model) return DEFAULT_CONTEXT_LIMIT;
+    // Check dynamic limits first (from modelUsage in result events)
+    if (dynamicLimits.has(model)) return dynamicLimits.get(model);
+    // Check partial matches (e.g., "claude-opus-4-6" matches stored "claude-opus-4-6-...")
+    for (const [key, limit] of dynamicLimits) {
+      if (model.includes(key) || key.includes(model)) return limit;
     }
-    return MODEL_LIMITS.default;
+    return DEFAULT_CONTEXT_LIMIT;
   }
 
   function formatTokens(n) {
@@ -153,8 +152,10 @@
     const d = document.createElement('div');
     d.id = 'ccdex-context-indicator';
     d.innerHTML = `
-      <div class="ccdex-bar-bg"><div class="ccdex-bar-fill" data-c="ctx-fill"></div></div>
-      <span data-c="ctx-label"></span>
+      <span data-c="ctx-section" style="display:none;align-items:center;gap:6px">
+        <span class="ccdex-bar-bg"><span class="ccdex-bar-fill" data-c="ctx-fill"></span></span>
+        <span data-c="ctx-label"></span>
+      </span>
       <span class="ccdex-sep" data-c="5h-sep" style="display:none">·</span>
       <span class="ccdex-rl" data-c="5h-rl" style="display:none">
         <span class="ccdex-rl-type">5h</span>
@@ -225,10 +226,13 @@
     if (!s) return;
     const total = s.inputTokens + s.outputTokens;
     const limit = s.limit;
+    if (limit <= 0) return; // Hide until context limit is known
     const pct = Math.min((total / limit) * 100, 100);
+    const section = el('ctx-section');
     const fill = el('ctx-fill');
     const label = el('ctx-label');
     if (!fill || !label) return;
+    if (section) section.style.display = 'inline-flex';
     fill.style.width = pct + '%';
     fill.style.background = pctColor(pct);
     label.textContent = formatTokens(total) + ' / ' + formatTokens(limit);
@@ -298,8 +302,26 @@
         return;
       }
 
+      // Extract dynamic context limits from result events' modelUsage
+      if (msg.type === 'result' && msg.modelUsage) {
+        let largestCW = 0;
+        for (const [modelId, info] of Object.entries(msg.modelUsage)) {
+          if (info.contextWindow) {
+            dynamicLimits.set(modelId, info.contextWindow);
+            if (info.contextWindow > largestCW) largestCW = info.contextWindow;
+          }
+        }
+        // Update current session's limit if we learned a new value
+        if (largestCW > 0 && sessions.has(sid)) {
+          const s = sessions.get(sid);
+          s.limit = largestCW;
+          console.log('[CCDEX] Context limit updated from modelUsage:', largestCW);
+          updateContext(sid);
+        }
+      }
+
       if (!sessions.has(sid)) {
-        sessions.set(sid, { inputTokens: 0, outputTokens: 0, model: null, limit: MODEL_LIMITS.default });
+        sessions.set(sid, { inputTokens: 0, outputTokens: 0, model: null, limit: DEFAULT_CONTEXT_LIMIT });
       }
       const s = sessions.get(sid);
 

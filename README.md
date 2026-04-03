@@ -8,7 +8,7 @@
 
 ## What It Shows
 
-- **Context window usage** — progress bar + token count (e.g., `46.7k / 200.0k`)
+- **Context window usage** — progress bar + token count (e.g., `46.7k / 200.0k` or `171.2k / 1.0M`)
 - **5-hour rate limit** — usage % + reset countdown (e.g., `5h 4% 4h30m`)
 - **Weekly rate limit** — usage % + reset countdown (e.g., `Wk 6% 6d`)
 
@@ -21,6 +21,8 @@ CCDEX patches Claude Desktop's Electron app to inject a small script into the pr
 ### Context Token Usage
 
 The Code tab communicates with the backend via Electron IPC. The script listens on the `LocalSessions` IPC channel for assistant message events, which include a `usage` object with `input_tokens`, `output_tokens`, and cache token counts. These are tracked per-session and displayed against the model's context limit.
+
+The context limit is detected dynamically from `result` events, which include `modelUsage` with each model's `contextWindow` (e.g., 200k for standard, 1M for extended context). No hardcoded limits — the indicator adapts automatically.
 
 ### Rate Limit Usage
 
