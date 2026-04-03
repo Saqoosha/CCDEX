@@ -215,10 +215,15 @@ def resign_app():
     if your user owns /Applications/Claude.app.
     """
     print("Re-signing Claude.app (ad-hoc)...")
-    subprocess.run(
-        ["codesign", "--force", "--deep", "--sign", "-", CLAUDE_APP],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["codesign", "--force", "--deep", "--sign", "-", CLAUDE_APP],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR: codesign failed (exit {e.returncode}). Try manually:")
+        print(f'  codesign --force --deep --sign - "{CLAUDE_APP}"')
+        raise
     print("Re-signed.")
 
 
